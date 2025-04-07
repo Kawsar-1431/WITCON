@@ -1,135 +1,124 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const Flight = require('./models/flightModel');
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
 const app = express();
 
-// Enable CORS
 app.use(cors());
-
-// Middleware to parse JSON bodies
 app.use(express.json());
 
-// Utility function to convert m/d/y to yyyy-mm-dd
-function convertDateFormat(dateStr) {
-    if (/\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-        return dateStr; // Already in yyyy-mm-dd format
-    }
-    const [month, day, year] = dateStr.split('/');
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-}
+const SERP_API_KEY = "0de07f7453a2611da9f7d4b0baafca26559ce34ac9618bad87f55ea4bbf23a79";
 
-// Routes
-app.get('/', (req, res) => {
-    res.send('Hello World');
-});
-
-// Fetch all flights with optional query parameters
-app.get('/flights', async (req, res) => {
-    const { origin, destination, date, maxPrice } = req.query;
+app.get("/api/flights", async (req, res) => {
     try {
-        const query = {};
-
-        if (origin) query.origin = new RegExp(origin, 'i');
-        if (destination) query.destination = new RegExp(destination, 'i');
-        if (date) query.date = { $eq: new Date(convertDateFormat(date)) };
-        if (maxPrice) query.price = { $lte: maxPrice };
-
-        const flights = await Flight.find(query);
-        res.status(200).json(flights);
-    } catch (error) {
-        console.error('Error fetching flights:', error.stack);
-        res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-});
-
-// Fetch flight by ID
-app.get('/flights/:id', async (req, res) => {
-    try {
-        const flight = await Flight.findById(req.params.id);
-        if (!flight) {
-            return res.status(404).json({ message: 'Flight not found' });
+        const { origin, destination, date } = req.query;
+        if (!origin || !destination || !date) {
+            return res.status(400).json({
+                error: "Missing required parameters",
+                message: "Please provide origin, destination, and date parameters"
+            });
         }
-        res.status(200).json(flight);
-    } catch (error) {
-        console.error('Error fetching flight by ID:', error.stack);
-        res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-});
 
-// Add a new flight
-app.post('/flights', async (req, res) => {
-    try {
-        const { name, seats, price, origin, destination, date } = req.body;
-        const formattedDate = convertDateFormat(date);
 
-        const newFlight = new Flight({
-            name,
-            seats,
-            price,
-            origin,
-            destination,
-            date: new Date(formattedDate)
+        const serpApiUrl = `https://serpapi.com/search?engine=google_flights&departure_id=${origin}&arrival_id=${destination}&outbound_date=${date}&type=2&currency=USD&api_key=${SERP_API_KEY}`;
+        const response = await axios.get(serpApiUrl);
+
+
+        let flights = [];
+        if (response.data.best_flights) {
+            flights = [...flights, ...response.data.best_flights.map(processFlight)];
+        }
+
+        if (response.data.other_flights) {
+            flights = [...flights, ...response.data.other_flights.map(processFlight)];
+        }
+
+
+
+        function processFlight(flight) {
+            const firstFlight = flight.flights[0];
+
+            return {
+                id: flight.booking_token || Date.now().toString(),
+
+                airline: firstFlight.airline,
+                airlineLogo: flight.airline_logo,
+                flightNumber: firstFlight.flight_number,
+                departureTime: firstFlight.departure_airport.time,
+                arrivalTime: firstFlight.arrival_airport.time,
+                departureAirport: firstFlight.departure_airport.name,
+                arrivalAirport: firstFlight.arrival_airport.name,
+                duration: flight.total_duration,
+                price: flight.price,
+                airplane: firstFlight.airplane,
+                travelClass: firstFlight.travel_class,
+                legroom: firstFlight.legroom,
+                carbonEmissions: flight.carbon_emissions?.this_flight ?
+                flight.carbon_emissions.this_flight / 1000 : 0,
+                extensions: flight.extensions || []
+            };
+        }
+
+            res.json({
+            success: true,
+            flights
         });
 
-        await newFlight.save();
-        res.status(201).json(newFlight);
     } catch (error) {
-        console.error('Error adding new flight:', error.stack);
-        res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-});
 
-// Update an existing flight
-app.put('/flights/:id', async (req, res) => {
-    try {
-        const { name, seats, price, origin, destination, date } = req.body;
-        const formattedDate = convertDateFormat(date);
+        console.error("Flight API Error:", error);
 
-        const updatedFlight = await Flight.findByIdAndUpdate(
-            req.params.id,
-            {
-                name,
-                seats,
-                price,
-                origin,
-                destination,
-                date: new Date(formattedDate)
-            },
-            { new: true }
-        );
-
-        if (!updatedFlight) {
-            return res.status(404).json({ message: 'Flight not found' });
-        }
-        res.status(200).json(updatedFlight);
-    } catch (error) {
-        console.error('Error updating flight:', error.stack);
-        res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-});
-
-// Delete a flight
-app.delete('/flights/:id', async (req, res) => {
-    try {
-        const flight = await Flight.findByIdAndDelete(req.params.id);
-        if (!flight) {
-            return res.status(404).json({ message: 'Flight not found' });
-        }
-        res.status(200).json({ message: 'Flight deleted successfully' });
-    } catch (error) {
-        console.error('Error deleting flight:', error.stack);
-        res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-});
-
-// MongoDB connection
-mongoose.set("strictQuery", false);
-mongoose.connect('mongodb+srv://KawsarAlamkhan:123Jahin@cluster0.equ9p.mongodb.net/WITCON-API?retryWrites=true&w=majority&appName=Cluster0')
-    .then(() => {
-        console.log('Connected to MongoDB...');
-        app.listen(3000, () => {
-            console.log('Server is running on http://localhost:3000');
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch flights",
+            details: error.message,
+            message: "Please try later"
         });
-    })
-    .catch(err => console.error('Could not connect to MongoDB...', err));
+    }
+});
+
+
+app.get("/api/hotels", async (req, res) => {
+    try {
+
+        const { location, checkIn, checkOut, guests } = req.query;
+            if (!location || !checkIn || !checkOut) {
+            return res.status(400).json({
+                error: "Missing required parameters",
+                message: "Please provide location, checkIn, and checkOut parameters"
+            });
+        }
+
+
+        const serpApiUrl = `https://serpapi.com/search.json?engine=google_hotels&q=${encodeURIComponent(location)}&check_in_date=${checkIn}&check_out_date=${checkOut}&adults=${guests || 2}&currency=USD&gl=us&hl=en&api_key=${SERP_API_KEY}`;
+        const response = await axios.get(serpApiUrl);
+
+
+        let hotels = [];
+            if (response.data.properties) {
+            hotels = response.data.properties.map(hotel => ({
+                    ...hotel,
+
+            }));
+        }
+
+            res.json({
+            success: true,
+            hotels
+        });
+
+    } catch (error) {
+        console.error("Hotel API Error:", error);
+
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch hotels",
+            details: error.message,
+            message: "Please try later"
+        });
+    }
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
