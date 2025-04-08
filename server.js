@@ -8,6 +8,8 @@ app.use(express.json());
 
 const SERP_API_KEY = "0de07f7453a2611da9f7d4b0baafca26559ce34ac9618bad87f55ea4bbf23a79";
 
+// Flight API Endpoint
+// This endpoint fetches flight data based on origin, destination, and date
 app.get("/api/flights", async (req, res) => {
     try {
         const { origin, destination, date } = req.query;
@@ -18,7 +20,7 @@ app.get("/api/flights", async (req, res) => {
             });
         }
 
-
+//
         const serpApiUrl = `https://serpapi.com/search?engine=google_flights&departure_id=${origin}&arrival_id=${destination}&outbound_date=${date}&type=2&currency=USD&api_key=${SERP_API_KEY}`;
         const response = await axios.get(serpApiUrl);
 
@@ -77,6 +79,8 @@ app.get("/api/flights", async (req, res) => {
 });
 
 
+// Hotel API Endpoint
+// This endpoint fetches hotel data based on location, check-in, check-out dates, and number of guests
 app.get("/api/hotels", async (req, res) => {
     try {
 
